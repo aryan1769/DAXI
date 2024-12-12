@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract RideShare {
+    struct Ride {
+        string rideCode;
+        address rider;
+        address driver;
+        uint256 price;
+        string pickupLocation;
+        string dropLocation;
+        uint256 distance;
+        bool isCompleted;
+        bool isCancelled;
+    }
+
+    mapping(string => Ride) public rides;
+    mapping(address => bool) public driverAvailability;
+    mapping(string => string) public completionCodes;
+
+    event RideCreated(string rideCode, address rider, uint256 price);
+    event RideAccepted(string rideCode, address driver);
+    event RideCompleted(string rideCode, address driver, uint256 payment);
+    event RideCancelled(string rideCode, address rider);
+
+    function generateRideCode(address _rider) internal view returns (string memory) {
+        return string(abi.encodePacked(block.timestamp, _rider));
+    }
+
+    function createRide(string memory _pickup, string memory _drop, uint256 _price, uint256 _distance) public payable {
+        require(msg.value == _price, "Must pay the price upfront");
+        string memory rideCode = generateRideCode(msg.sender);
+
+        rides[rideCode] = Ride({
+            rideCode: rideCode,
+            rider: msg.sender,
+            driver: address(0),
+            price: _price,
+            pickupLocation: _pickup,
+            dropLocation: _drop,
+            distance: _distance,
+            isCompleted: false,
+            isCancelled: false
+        });
+
+        emit RideCreated(rideCode, msg.sender, _price);
+    }
+
+    function acceptRide(string memory _rideCode) public {
+        require(driverAvailability[msg.sender], "Driver is not available");
+        Ride storage ride = rides[_rideCode];
+        require(ride.rider != address(0), "Ride does not exist");
+        require(ride.driver == address(0), "Ride already accepted");
+
+        ride.driver = msg.sender;
+        emit RideAccepted(_rideCode, msg.sender);
+    }
+
+    function completeRide(string memory _rideCode, string memory _completionCode) public {
+        Ride storage ride = rides[_rideCode];
+        require(ride.rider != address(0), "Ride does not exist");
+        require(keccak256(abi.encodePacked(completionCodes[_rideCode])) == keccak256(abi.encodePacked(_completionCode)), "Invalid completion code");
+
+        ride.isCompleted = true;
+        payable(ride.driver).transfer(ride.price);
+
+        emit RideCompleted(_rideCode, ride.driver, ride.price);
+    }
+
+    function cancelRide(string memory _rideCode) public {
+        Ride storage ride = rides[_rideCode];
+        require(ride.rider == msg.sender, "Only the rider can cancel the ride");
+        require(!ride.isCompleted, "Cannot cancel a completed ride");
+
+        ride.isCancelled = true;
+        payable(ride.rider).transfer(ride.price);
+
+        emit RideCancelled(_rideCode, msg.sender);
+    }
+
+    function setDriverAvailability(bool _available) public {
+        driverAvailability[msg.sender] = _available;
+    }
+
+    function generateCompletionCode(string memory _rideCode) public {
+        Ride storage ride = rides[_rideCode];
+        require(ride.driver == msg.sender, "Only the assigned driver can generate the code");
+        completionCodes[_rideCode] = string(abi.encodePacked(block.timestamp, _rideCode));
+    }
+}

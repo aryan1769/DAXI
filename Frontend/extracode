@@ -1,0 +1,220 @@
+import React, { useState, useEffect } from 'react';
+import web3 from './web3';
+import rideSharingContract from './contract';
+
+function App() {
+  const [accounts, setAccounts] = useState([]);
+  const [account, setAccount] = useState("");
+  const [balances, setBalances] = useState([]);
+  const [rides, setRides] = useState([]);
+  const [rideCode, setRideCode] = useState("");
+  const [pickupLocation, setPickupLocation] = useState("");
+  const [dropLocation, setDropLocation] = useState("");
+  const [price, setPrice] = useState("");
+  const [role, setRole] = useState(""); // Rider or Driver
+  const [riderAddress, setRiderAddress] = useState("");
+  const [driverAddress, setDriverAddress] = useState("");
+
+  // Load accounts and balances on component mount
+  useEffect(() => {
+    const loadAccountsAndBalances = async () => {
+      const fetchedAccounts = await web3.eth.getAccounts();
+      setAccounts(fetchedAccounts);
+      setAccount(fetchedAccounts[0]);
+
+      const accountBalances = await Promise.all(
+        fetchedAccounts.map(async (acc) => {
+          const balance = await web3.eth.getBalance(acc);
+          return web3.utils.fromWei(balance, 'ether');
+        })
+      );
+      setBalances(accountBalances);
+    };
+
+    loadAccountsAndBalances();
+  }, []);
+
+  // Function to validate that rider and driver addresses are not the same
+  const validateAddress = () => {
+    if (role === "rider" && account === driverAddress) {
+      alert("The rider and driver addresses cannot be the same. Please switch accounts.");
+      return false;
+    }
+    if (role === "driver" && account === riderAddress) {
+      alert("The driver and rider addresses cannot be the same. Please switch accounts.");
+      return false;
+    }
+    return true;
+  };
+
+  // Create a new ride
+  const createRide = async () => {
+    if (role !== "rider") {
+      alert("Only riders can create rides.");
+      return;
+    }
+    if (!validateAddress()) return;
+
+    try {
+      await rideSharingContract.methods
+        .createRide(
+          rideCode,
+          web3.utils.toWei(price, 'ether'),
+          pickupLocation,
+          dropLocation
+        )
+        .send({
+          from: account,
+          value: web3.utils.toWei(price, 'ether'),
+        });
+      setRiderAddress(account); // Set the current account as rider
+      alert("Ride created successfully!");
+      setRideCode("");
+      setPickupLocation("");
+      setDropLocation("");
+      setPrice("");
+    } catch (error) {
+      console.error(error);
+      alert("Failed to create ride.");
+    }
+  };
+
+  // Accept a ride
+  const acceptRide = async () => {
+    if (role !== "driver") {
+      alert("Only drivers can accept rides.");
+      return;
+    }
+    if (!validateAddress()) return;
+
+    try {
+      await rideSharingContract.methods.acceptRide(rideCode).send({ from: account });
+      setDriverAddress(account); // Set the current account as driver
+      alert("Ride accepted successfully!");
+      setRideCode("");
+    } catch (error) {
+      console.error(error);
+      alert("Failed to accept ride.");
+    }
+  };
+
+  // Complete a ride
+  const completeRide = async () => {
+    if (role !== "rider") {
+      alert("Only riders can complete rides.");
+      return;
+    }
+    if (!validateAddress()) return;
+
+    try {
+      await rideSharingContract.methods.completeRide(rideCode).send({ from: account });
+      alert("Ride completed successfully!");
+      setRideCode("");
+    } catch (error) {
+      console.error(error);
+      alert("Failed to complete ride.");
+    }
+  };
+
+  // Fetch available rides
+  const getAvailableRides = async () => {
+    if (role !== "driver") {
+      alert("Only drivers can fetch available rides.");
+      return;
+    }
+    try {
+      const availableRides = await rideSharingContract.methods.getAvailableRides().call();
+      setRides(availableRides);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  return (
+    <div className="App">
+      <h1>Decentralized Ride Sharing</h1>
+      <p><strong>Connected Account:</strong> {account}</p>
+
+      {/* Account Selector */}
+      <h2>Select Account</h2>
+      <select onChange={(e) => setAccount(e.target.value)} value={account}>
+        {accounts.map((acc, index) => (
+          <option key={index} value={acc}>
+            {acc} - {balances[index] || "Loading..."} ETH
+          </option>
+        ))}
+      </select>
+
+      {/* Role Selector */}
+      <h2>Select Role</h2>
+      <select onChange={(e) => setRole(e.target.value)} value={role}>
+        <option value="">Select Role</option>
+        <option value="rider">Rider</option>
+        <option value="driver">Driver</option>
+      </select>
+
+      {role === "rider" && (
+        <div>
+          <h2>Create a Ride</h2>
+          <input
+            type="text"
+            placeholder="Ride Code"
+            value={rideCode}
+            onChange={(e) => setRideCode(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Pickup Location"
+            value={pickupLocation}
+            onChange={(e) => setPickupLocation(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Drop Location"
+            value={dropLocation}
+            onChange={(e) => setDropLocation(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Price (in Ether)"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+          />
+          <button onClick={createRide}>Create Ride</button>
+
+          <h2>Complete a Ride</h2>
+          <input
+            type="text"
+            placeholder="Enter Ride Code"
+            value={rideCode}
+            onChange={(e) => setRideCode(e.target.value)}
+          />
+          <button onClick={completeRide}>Complete Ride</button>
+        </div>
+      )}
+
+      {role === "driver" && (
+        <div>
+          <h2>Accept a Ride</h2>
+          <input
+            type="text"
+            placeholder="Enter Ride Code"
+            value={rideCode}
+            onChange={(e) => setRideCode(e.target.value)}
+          />
+          <button onClick={acceptRide}>Accept Ride</button>
+
+          <h2>Available Rides</h2>
+          <button onClick={getAvailableRides}>Fetch Rides</button>
+          <ul>
+            {rides.map((ride, index) => (
+              <li key={index}>{ride}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;

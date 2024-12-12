@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract RideSharing {
+    // Struct to store ride details
+    struct Ride {
+        uint256 rideId;
+        address rider;
+        address driver;
+        string pickupLocation;
+        string dropLocation;
+        uint256 price;
+        uint256 distance; // in meters
+        bool isCompleted;
+        bool isCancelled;
+    }
+
+    // State variables
+    uint256 public rideCounter;
+    mapping(uint256 => Ride) public rides;
+    mapping(address => uint256[]) public riderRides; // Tracks rides by rider
+    mapping(address => uint256[]) public driverRides; // Tracks rides by driver
+
+    // Events
+    event RideCreated(
+        uint256 indexed rideId,
+        address indexed rider,
+        string pickupLocation,
+        string dropLocation,
+        uint256 price,
+        uint256 distance
+    );
+    event RideAccepted(uint256 indexed rideId, address indexed driver);
+    event RideCompleted(uint256 indexed rideId, address indexed rider, address indexed driver);
+
+    // Modifier to ensure only the rider can modify their rides
+    modifier onlyRider(uint256 rideId) {
+        require(rides[rideId].rider == msg.sender, "Only the rider can perform this action");
+        _;
+    }
+
+    // Modifier to ensure only the driver can modify their accepted rides
+    modifier onlyDriver(uint256 rideId) {
+        require(rides[rideId].driver == msg.sender, "Only the driver can perform this action");
+        _;
+    }
+
+    // Create a ride
+    function createRide(
+        string memory _pickupLocation,
+        string memory _dropLocation,
+        uint256 _price,
+        uint256 _distance
+    ) external {
+        rideCounter++;
+        rides[rideCounter] = Ride({
+            rideId: rideCounter,
+            rider: msg.sender,
+            driver: address(0),
+            pickupLocation: _pickupLocation,
+            dropLocation: _dropLocation,
+            price: _price,
+            distance: _distance,
+            isCompleted: false,
+            isCancelled: false
+        });
+        riderRides[msg.sender].push(rideCounter);
+
+        emit RideCreated(rideCounter, msg.sender, _pickupLocation, _dropLocation, _price, _distance);
+    }
+
+    // Accept a ride
+    function acceptRide(uint256 _rideId) external {
+        Ride storage ride = rides[_rideId];
+        require(ride.rider != address(0), "Ride does not exist");
+        require(ride.driver == address(0), "Ride already accepted");
+        require(ride.rider != msg.sender, "Rider cannot accept their own ride");
+
+        ride.driver = msg.sender;
+        driverRides[msg.sender].push(_rideId);
+
+        emit RideAccepted(_rideId, msg.sender);
+    }
+
+    // Complete a ride
+    function completeRide(uint256 _rideId) external onlyRider(_rideId) {
+        Ride storage ride = rides[_rideId];
+        require(!ride.isCompleted, "Ride is already completed");
+        require(ride.driver != address(0), "Ride has not been accepted by a driver");
+
+        ride.isCompleted = true;
+
+        // Transfer Ether to the driver
+        payable(ride.driver).transfer(ride.price);
+
+        emit RideCompleted(_rideId, ride.rider, ride.driver);
+    }
+
+    // Fallback function to accept Ether payments
+    receive() external payable {}
+}
